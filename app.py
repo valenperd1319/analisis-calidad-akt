@@ -142,6 +142,9 @@ with st.sidebar:
             else:
                 with st.spinner("Procesando..."):
                     df_raw = pd.read_excel(uploaded, sheet_name="Datos")
+                    # Normalize column names
+                    df_raw.columns = [c.strip() for c in df_raw.columns]
+                    if 'Modelo' in df_raw.columns: df_raw['modelo'] = df_raw['Modelo']
                     df_raw["cantidad_pnc"] = pd.to_numeric(df_raw.get("cantidad_pnc",0), errors="coerce").fillna(0)
                     save_periodo(nombre, df_raw)
                     st.success(f"✅ {nombre} guardado")
