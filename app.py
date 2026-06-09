@@ -172,6 +172,15 @@ with st.sidebar:
         st.stop()
     selected_ids = [periodo_options[p] for p in selected]
     st.divider()
+    with st.expander("⚙️ Gestión de datos"):
+        if st.button("🗑️ Borrar todos los datos", use_container_width=True, type="secondary"):
+            import os
+            if os.path.exists(DB_PATH):
+                os.remove(DB_PATH)
+            st.success("Base de datos reiniciada")
+            st.rerun()
+        st.caption("Úsalo si necesitas volver a cargar los datos desde cero")
+    st.divider()
     st.caption("Área de Desarrollo de Producto")
     st.caption("Valentina Perdomo Perdomo")
 
