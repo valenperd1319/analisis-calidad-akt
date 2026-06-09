@@ -72,7 +72,18 @@ def init_db():
         estado TEXT, fecha_creacion TEXT, notas TEXT)""")
     con.commit(); con.close()
 
+def safe_get(r, *keys):
+    for k in keys:
+        try:
+            v = r[k]
+            if v is not None and str(v) != "nan": return str(v)
+        except: pass
+    return ""
+
 def save_periodo(nombre, df):
+    # Normalize column names
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
     cur.execute("INSERT INTO periodos (nombre,fecha_carga,registros) VALUES (?,?,?)",
@@ -80,11 +91,12 @@ def save_periodo(nombre, df):
     pid = cur.lastrowid
     rows = []
     for _, r in df.iterrows():
-        dmg = str(r.get("damage",""))
-        pnc = float(r.get("cantidad_pnc",0) or 0)
-        rows.append((pid, str(r.get("mes","")), str(r.get("nombre_proveedor","")),
-            dmg, str(r.get("tipo_averia","")), str(r.get("articulo","")),
-            str(r.get("Modelo","")), pnc, pnc*WEIGHTS.get(dmg,2), STD.get(dmg,"C")))
+        dmg = safe_get(r, "damage")
+        pnc = float(r["cantidad_pnc"]) if "cantidad_pnc" in r.index and str(r["cantidad_pnc"]) not in ["","nan"] else 0.0
+        modelo = safe_get(r, "Modelo", "modelo")
+        rows.append((pid, safe_get(r,"mes"), safe_get(r,"nombre_proveedor"),
+            dmg, safe_get(r,"tipo_averia"), safe_get(r,"articulo"),
+            modelo, pnc, pnc*WEIGHTS.get(dmg,2), STD.get(dmg,"C")))
     cur.executemany("INSERT INTO registros (periodo_id,mes,proveedor,damage,tipo_averia,articulo,modelo,cantidad_pnc,criticidad,std) VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
     con.commit(); con.close()
     return pid
