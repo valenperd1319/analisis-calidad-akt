@@ -43,6 +43,15 @@ STD = {
 PROV_PROCESS = {"SERVIPINTARTE":"batch","INTERAUTOS":"continuo"}
 STD_COLORS = {"D":"#c0392b","C":"#c9840a","T":"#2d6b3f"}
 
+MES_ORDER = ["enero","febrero","marzo","abril","mayo","junio",
+    "julio","agosto","septiembre","octubre","noviembre","diciembre"]
+
+def sort_mes(m):
+    m_lower = str(m).lower()
+    yr = next((s for s in str(m).split("-") if s.isdigit() and len(s)==4), "0000")
+    mn = next((str(i).zfill(2) for i,n in enumerate(MES_ORDER) if n in m_lower), "99")
+    return yr+mn
+
 DB_PATH = "calidad_akt.db"
 
 def init_db():
@@ -217,6 +226,8 @@ with tab_res:
     st.markdown('<div class="sec-title">Tendencia mensual por proveedor</div>', unsafe_allow_html=True)
     mt = df.groupby(["mes","proveedor"])["cantidad_pnc"].sum().reset_index()
     if not mt.empty:
+        mt["_sort"] = mt["mes"].apply(sort_mes)
+        mt = mt.sort_values("_sort").drop(columns=["_sort"])
         fig3 = px.line(mt,x="mes",y="cantidad_pnc",color="proveedor",markers=True,
             labels={"cantidad_pnc":"PNC","mes":"Mes","proveedor":"Proveedor"},height=280,
             color_discrete_sequence=px.colors.qualitative.Set2)
@@ -284,6 +295,8 @@ with tab_prov:
 
         st.markdown('<div class="sec-title">Tendencia mensual</div>', unsafe_allow_html=True)
         md = dfp.groupby("mes")["cantidad_pnc"].sum().reset_index()
+        md["_sort"] = md["mes"].apply(sort_mes)
+        md = md.sort_values("_sort").drop(columns=["_sort"])
         avg_v = md["cantidad_pnc"].mean()
         md["Estado"] = md["cantidad_pnc"].apply(lambda v:"Anómalo (+30%)" if v>avg_v*1.3 else "Sobre promedio" if v>avg_v else "Normal")
         fig3 = px.bar(md,x="mes",y="cantidad_pnc",color="Estado",
