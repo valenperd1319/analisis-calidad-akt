@@ -664,7 +664,7 @@ INDICADORES PRINCIPALES
 • Tipo de proceso: {proc_lbl_e}
 
 TOP 3 DEFECTOS
-{chr(10).join(f"  {i+1}. {row.name}: {row:,.0f} PNC ({row/tot_e*100:.1f}%)" for i,(name,row) in enumerate(top3_def.items()))}
+{chr(10).join(f"  {i+1}. {name}: {val:,.0f} PNC ({val/tot_e*100:.1f}%)" for i,(name,val) in enumerate(top3_def.items()))}
 
 TOP 3 PIEZAS CRÍTICAS
 {chr(10).join(f"  {i+1}. {name}: {val:,.0f} PNC" for i,(name,val) in enumerate(top3_pie.items()))}
