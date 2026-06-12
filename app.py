@@ -207,8 +207,8 @@ st.markdown(f'<div class="main-title">🏍 Análisis de Calidad — AKT Motos</d
 st.markdown(f"**Período:** {periodo_label} · {len(df):,} registros · {df['proveedor'].nunique()} proveedores")
 st.markdown("")
 
-tabs = st.tabs(["📊 Resumen","🏭 Por proveedor","🔍 Por defecto","🔧 Por pieza","📈 Comparar","✅ Acciones"])
-tab_res, tab_prov, tab_def, tab_pie, tab_comp, tab_acc = tabs
+tabs = st.tabs(["📊 Resumen","🏭 Por proveedor","🔍 Por defecto","🔧 Por pieza","📈 Comparar períodos","📄 Exportar","🗂️ Períodos","✅ Acciones"])
+tab_res, tab_prov, tab_def, tab_pie, tab_comp, tab_export, tab_mgmt, tab_acc = tabs
 
 # ── TAB RESUMEN ──────────────────────────────────────────────
 with tab_res:
@@ -434,30 +434,283 @@ with tab_pie:
 
 # ── TAB COMPARAR ─────────────────────────────────────────────
 with tab_comp:
-    if len(selected_ids)<2:
-        st.info("Selecciona al menos 2 períodos en el panel izquierdo para comparar")
+    all_periods = list(periodo_options.keys())
+    if len(all_periods) < 2:
+        st.info("Necesitas al menos 2 períodos guardados para comparar. Sube más archivos.")
     else:
-        st.markdown('<div class="sec-title">PNC por proveedor — comparativo entre períodos</div>', unsafe_allow_html=True)
-        comp = df.groupby(["periodo_nombre","proveedor"])["cantidad_pnc"].sum().reset_index()
-        fig = px.bar(comp,x="proveedor",y="cantidad_pnc",color="periodo_nombre",barmode="group",
-            labels={"cantidad_pnc":"PNC","proveedor":"Proveedor","periodo_nombre":"Período"},height=320,
-            color_discrete_sequence=px.colors.qualitative.Set2)
-        fig.update_layout(margin=dict(l=0,r=0,t=5,b=0),plot_bgcolor="white",paper_bgcolor="white")
-        st.plotly_chart(fig,use_container_width=True)
+        st.markdown('<div class="sec-title">Selecciona dos períodos para comparar</div>', unsafe_allow_html=True)
+        cc1, cc2 = st.columns(2)
+        per_a = cc1.selectbox("Período A (base)", all_periods, index=0, key="comp_a")
+        per_b = cc2.selectbox("Período B (comparar)", all_periods, index=min(1,len(all_periods)-1), key="comp_b")
 
-        st.markdown('<div class="sec-title">Evolución de defectos de devolución directa</div>', unsafe_allow_html=True)
-        top5D = df[df["std"]=="D"].groupby("damage")["cantidad_pnc"].sum().nlargest(5).index.tolist()
-        cd = df[df["damage"].isin(top5D)].groupby(["periodo_nombre","damage"])["cantidad_pnc"].sum().reset_index()
-        fig2 = px.line(cd,x="periodo_nombre",y="cantidad_pnc",color="damage",markers=True,
-            labels={"cantidad_pnc":"PNC","periodo_nombre":"Período","damage":"Defecto"},height=280,
-            color_discrete_sequence=px.colors.qualitative.Set1)
-        fig2.update_layout(margin=dict(l=0,r=0,t=5,b=0),plot_bgcolor="white",paper_bgcolor="white")
-        st.plotly_chart(fig2,use_container_width=True)
+        if per_a == per_b:
+            st.warning("Selecciona dos períodos diferentes")
+        else:
+            id_a = periodo_options[per_a]
+            id_b = periodo_options[per_b]
+            df_a = get_data([id_a])
+            df_b = get_data([id_b])
 
-        st.markdown('<div class="sec-title">Tabla comparativa</div>', unsafe_allow_html=True)
-        pivot = comp.pivot(index="proveedor",columns="periodo_nombre",values="cantidad_pnc").reset_index()
-        pivot.columns.name = None
-        st.dataframe(pivot,use_container_width=True,hide_index=True)
+            if df_a.empty or df_b.empty:
+                st.warning("Uno de los períodos no tiene datos")
+            else:
+                df_a["cantidad_pnc"] = pd.to_numeric(df_a["cantidad_pnc"],errors="coerce").fillna(0)
+                df_b["cantidad_pnc"] = pd.to_numeric(df_b["cantidad_pnc"],errors="coerce").fillna(0)
+
+                # KPI comparison
+                st.markdown('<div class="sec-title">Resumen general</div>', unsafe_allow_html=True)
+                tot_a = df_a["cantidad_pnc"].sum()
+                tot_b = df_b["cantidad_pnc"].sum()
+                dev_a = df_a[df_a["std"]=="D"]["cantidad_pnc"].sum()
+                dev_b = df_b[df_b["std"]=="D"]["cantidad_pnc"].sum()
+                pctD_a = dev_a/tot_a*100 if tot_a else 0
+                pctD_b = dev_b/tot_b*100 if tot_b else 0
+
+                k1,k2,k3,k4 = st.columns(4)
+                delta_tot = tot_b - tot_a
+                delta_dev = dev_b - dev_a
+                k1.metric(f"PNC — {per_a}", f"{tot_a:,.0f}")
+                k2.metric(f"PNC — {per_b}", f"{tot_b:,.0f}",
+                    delta=f"{delta_tot:+,.0f} ({delta_tot/tot_a*100:+.1f}%)" if tot_a else None,
+                    delta_color="inverse")
+                k3.metric(f"Dev. Directa — {per_a}", f"{dev_a:,.0f} ({pctD_a:.0f}%)")
+                k4.metric(f"Dev. Directa — {per_b}", f"{dev_b:,.0f} ({pctD_b:.0f}%)",
+                    delta=f"{delta_dev:+,.0f}" if dev_a else None,
+                    delta_color="inverse")
+
+                # Comparativo por proveedor
+                st.markdown('<div class="sec-title">Comparativo por proveedor</div>', unsafe_allow_html=True)
+                prov_a = df_a.groupby("proveedor")["cantidad_pnc"].sum().reset_index().rename(columns={"cantidad_pnc":per_a})
+                prov_b = df_b.groupby("proveedor")["cantidad_pnc"].sum().reset_index().rename(columns={"cantidad_pnc":per_b})
+                prov_cmp = prov_a.merge(prov_b, on="proveedor", how="outer").fillna(0)
+                prov_cmp["Δ PNC"] = prov_cmp[per_b] - prov_cmp[per_a]
+                prov_cmp["Δ %"] = prov_cmp.apply(
+                    lambda r: f"{r['Δ PNC']/r[per_a]*100:+.1f}%" if r[per_a]>0 else "N/A", axis=1)
+                prov_cmp["Tendencia"] = prov_cmp["Δ PNC"].apply(
+                    lambda x: "🔴 Empeoró" if x>0 else "🟢 Mejoró" if x<0 else "➡️ Igual")
+                prov_cmp[per_a] = prov_cmp[per_a].apply(lambda x: f"{x:,.0f}")
+                prov_cmp[per_b] = prov_cmp[per_b].apply(lambda x: f"{x:,.0f}")
+                prov_cmp["Δ PNC"] = prov_cmp["Δ PNC"].apply(lambda x: f"{x:+,.0f}")
+                st.dataframe(prov_cmp[["proveedor",per_a,per_b,"Δ PNC","Δ %","Tendencia"]]
+                    .rename(columns={"proveedor":"Proveedor"}),
+                    use_container_width=True, hide_index=True)
+
+                # Gráfica comparativa
+                prov_a2 = df_a.groupby("proveedor")["cantidad_pnc"].sum().reset_index()
+                prov_a2["periodo"] = per_a
+                prov_b2 = df_b.groupby("proveedor")["cantidad_pnc"].sum().reset_index()
+                prov_b2["periodo"] = per_b
+                prov_plot = pd.concat([prov_a2, prov_b2])
+                fig = px.bar(prov_plot, x="proveedor", y="cantidad_pnc", color="periodo",
+                    barmode="group", height=300,
+                    labels={"cantidad_pnc":"PNC","proveedor":"","periodo":"Período"},
+                    color_discrete_sequence=["#3a8a51","#2d65aa"])
+                fig.update_layout(margin=dict(l=0,r=0,t=5,b=0),
+                    plot_bgcolor="white",paper_bgcolor="white")
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Top defectos comparativo
+                st.markdown('<div class="sec-title">Top defectos — comparativo</div>', unsafe_allow_html=True)
+                def_a = df_a.groupby("damage")["cantidad_pnc"].sum().reset_index().rename(columns={"cantidad_pnc":per_a})
+                def_b = df_b.groupby("damage")["cantidad_pnc"].sum().reset_index().rename(columns={"cantidad_pnc":per_b})
+                def_cmp = def_a.merge(def_b, on="damage", how="outer").fillna(0)
+                def_cmp["Δ"] = def_cmp[per_b] - def_cmp[per_a]
+                def_cmp = def_cmp.sort_values(per_b, ascending=False).head(10)
+                def_cmp["STD"] = def_cmp["damage"].map(STD).map({"D":"🔴","C":"🟡","T":"🟢"}).fillna("⚪")
+                def_cmp["Tendencia"] = def_cmp["Δ"].apply(lambda x: "⬆️" if x>0 else "⬇️" if x<0 else "➡️")
+                def_cmp[per_a] = def_cmp[per_a].apply(lambda x: f"{x:,.0f}")
+                def_cmp[per_b] = def_cmp[per_b].apply(lambda x: f"{x:,.0f}")
+                def_cmp["Δ"] = def_cmp["Δ"].apply(lambda x: f"{x:+,.0f}")
+                st.dataframe(def_cmp[["STD","damage",per_a,per_b,"Δ","Tendencia"]]
+                    .rename(columns={"damage":"Defecto"}),
+                    use_container_width=True, hide_index=True)
+
+                # ── INTERPRETACIÓN AUTOMÁTICA ──
+                st.markdown('<div class="sec-title">🔍 Qué cambió — interpretación automática</div>', unsafe_allow_html=True)
+
+                def_a_raw = df_a.groupby("damage")["cantidad_pnc"].sum()
+                def_b_raw = df_b.groupby("damage")["cantidad_pnc"].sum()
+                pie_a_raw = df_a.groupby("articulo")["cantidad_pnc"].sum()
+                pie_b_raw = df_b.groupby("articulo")["cantidad_pnc"].sum()
+                prov_a_raw = df_a.groupby("proveedor")["cantidad_pnc"].sum()
+                prov_b_raw = df_b.groupby("proveedor")["cantidad_pnc"].sum()
+
+                insights = []
+                delta_pct = (tot_b - tot_a) / tot_a * 100 if tot_a else 0
+
+                # 1. Tendencia general
+                if abs(delta_pct) >= 5:
+                    dir_txt = f"aumentaron un **{abs(delta_pct):.0f}%**" if delta_pct > 0 else f"bajaron un **{abs(delta_pct):.0f}%**"
+                    color = "#fdf0ef" if delta_pct > 0 else "#e8f5ec"
+                    border = "#c0392b" if delta_pct > 0 else "#2d6b3f"
+                    icon = "📈" if delta_pct > 0 else "📉"
+                    nota = "Se recomienda revisar qué cambió en el proceso durante este período." if delta_pct > 0 else "Buena señal — las acciones tomadas pueden estar teniendo efecto."
+                    insights.append((color, border, icon,
+                        f"Los PNC totales {dir_txt} entre {per_a} y {per_b} ({tot_a:,.0f} → {tot_b:,.0f} PNC). {nota}"))
+
+                # 2. Por proveedor
+                for prov in prov_b_raw.index:
+                    va = prov_a_raw.get(prov, 0)
+                    vb = prov_b_raw.get(prov, 0)
+                    if va > 0 and vb > 0:
+                        dp = (vb - va) / va * 100
+                        proc = PROV_PROCESS.get(prov, "")
+                        proc_ctx = KB.get("_process_context", {}).get(proc, {})
+                        proc_note = f" ({proc_ctx.get('nombre', '')})" if proc_ctx else ""
+                        if dp > 20:
+                            insights.append(("#fdf0ef", "#c0392b", "🔴",
+                                f"**{prov}**{proc_note} empeoró: pasó de {va:,.0f} a {vb:,.0f} PNC (+{dp:.0f}%). "
+                                "Puede indicar cambio de lote, aumento de producción sin ajuste de controles, o mantenimiento pendiente."))
+                        elif dp < -20:
+                            insights.append(("#e8f5ec", "#2d6b3f", "✅",
+                                f"**{prov}**{proc_note} mejoró: bajó de {va:,.0f} a {vb:,.0f} PNC ({dp:.0f}%). "
+                                "Las acciones tomadas en el período anterior pueden estar dando resultado."))
+
+                # 3. Por defecto
+                all_dmg = set(def_a_raw.index) | set(def_b_raw.index)
+                for dmg in all_dmg:
+                    va = def_a_raw.get(dmg, 0)
+                    vb = def_b_raw.get(dmg, 0)
+                    std = STD.get(dmg, "C")
+                    if va > 50 or vb > 50:
+                        dp = (vb - va) / va * 100 if va > 0 else 100
+                        kbE = KB.get(dmg, {})
+                        causa = kbE.get("causas", [""])[0] if kbE.get("causas") else ""
+                        sol = kbE.get("soluciones", [""])[0] if kbE.get("soluciones") else ""
+                        causa_txt = f" Causa frecuente: {causa}." if causa else ""
+                        sol_txt = f" Se recomienda: {sol}." if sol else ""
+                        if dp > 30 and std == "D":
+                            insights.append(("#fdf0ef", "#c0392b", "🔴",
+                                f"**{dmg}** (devolución directa) subió {dp:.0f}%: {va:,.0f} → {vb:,.0f} PNC.{causa_txt}{sol_txt}"))
+                        elif dp > 40 and std == "C":
+                            insights.append(("#fef9ed", "#c9840a", "🟡",
+                                f"**{dmg}** (condicional) aumentó {dp:.0f}%: {va:,.0f} → {vb:,.0f} PNC.{causa_txt}"))
+                        elif dp < -30 and vb > 20:
+                            insights.append(("#e8f5ec", "#2d6b3f", "✅",
+                                f"**{dmg}** bajó {abs(dp):.0f}%: {va:,.0f} → {vb:,.0f} PNC. "
+                                "Posible efecto de acciones correctivas implementadas."))
+
+                # 4. Por pieza
+                all_pie = set(pie_a_raw.index) | set(pie_b_raw.index)
+                pie_changes = []
+                for pie in all_pie:
+                    va = pie_a_raw.get(pie, 0)
+                    vb = pie_b_raw.get(pie, 0)
+                    if (va > 100 or vb > 100) and va > 0:
+                        dp = (vb - va) / va * 100
+                        if abs(dp) > 30:
+                            pie_changes.append((pie, va, vb, dp))
+                pie_changes.sort(key=lambda x: abs(x[3]), reverse=True)
+                for pie, va, vb, dp in pie_changes[:3]:
+                    if dp > 0:
+                        insights.append(("#fdf0ef", "#c0392b", "📦",
+                            f"**{pie}** subió {dp:.0f}% en PNC: {va:,.0f} → {vb:,.0f}. "
+                            "Esta pieza merece revisión específica en el siguiente período."))
+                    else:
+                        insights.append(("#e8f5ec", "#2d6b3f", "📦",
+                            f"**{pie}** bajó {abs(dp):.0f}% en PNC: {va:,.0f} → {vb:,.0f}. "
+                            "Mejora significativa en esta pieza."))
+
+                # 5. % Devolución directa
+                if pctD_a > 0:
+                    delta_d = pctD_b - pctD_a
+                    if delta_d > 5:
+                        insights.append(("#fdf0ef", "#c0392b", "⚠️",
+                            f"El porcentaje de devolución directa subió de {pctD_a:.0f}% a {pctD_b:.0f}%. "
+                            "Más defectos están en categorías que no se pueden tolerar — revisar proceso con urgencia."))
+                    elif delta_d < -5:
+                        insights.append(("#e8f5ec", "#2d6b3f", "✅",
+                            f"El porcentaje de devolución directa bajó de {pctD_a:.0f}% a {pctD_b:.0f}%. "
+                            "Los defectos críticos se están reduciendo — buena tendencia."))
+
+                # Render
+                if not insights:
+                    st.success("✅ No se detectaron cambios significativos entre los dos períodos. La calidad se mantuvo estable.")
+                else:
+                    for bg, border, icon, txt in insights:
+                        st.markdown(
+                            f'<div style="background:{bg};border-left:4px solid {border};'
+                            f'padding:12px 18px;border-radius:0 10px 10px 0;margin:6px 0;line-height:1.6">'
+                            f'{icon} {txt}</div>',
+                            unsafe_allow_html=True)
+
+
+# ── TAB EXPORTAR ─────────────────────────────────────────────
+with tab_export:
+    st.markdown('<div class="sec-title">Exportar resumen ejecutivo por proveedor</div>', unsafe_allow_html=True)
+    st.info("Selecciona un proveedor y descarga un resumen en formato texto listo para pegar en un informe o correo.")
+
+    provs_exp = sorted(df["proveedor"].unique())
+    prov_exp = st.selectbox("Proveedor", provs_exp, key="exp_prov")
+    df_exp = df[df["proveedor"]==prov_exp].copy()
+
+    if not df_exp.empty:
+        tot_e = df_exp["cantidad_pnc"].sum()
+        avg_e = df_exp.groupby("mes")["cantidad_pnc"].sum().mean()
+        pctD_e = df_exp[df_exp["std"]=="D"]["cantidad_pnc"].sum()/tot_e*100 if tot_e else 0
+        top3_def = df_exp.groupby("damage")["cantidad_pnc"].sum().sort_values(ascending=False).head(3)
+        top3_pie = df_exp.groupby("articulo")["cantidad_pnc"].sum().sort_values(ascending=False).head(3)
+        proc_e = PROV_PROCESS.get(prov_exp,"")
+        proc_lbl_e = "Por lotes (horno cerrado)" if proc_e=="batch" else "Línea continua (horno abierto)" if proc_e=="continuo" else "No especificado"
+
+        resumen = f"""RESUMEN EJECUTIVO DE CALIDAD — {prov_exp}
+Período analizado: {periodo_label}
+{'='*50}
+
+INDICADORES PRINCIPALES
+• PNC Totales: {tot_e:,.0f}
+• Promedio mensual: {avg_e:,.0f} PNC/mes
+• % Devolución directa (STD-001): {pctD_e:.0f}%
+• Tipo de proceso: {proc_lbl_e}
+
+TOP 3 DEFECTOS
+{chr(10).join(f"  {i+1}. {row.name}: {row:,.0f} PNC ({row/tot_e*100:.1f}%)" for i,(name,row) in enumerate(top3_def.items()))}
+
+TOP 3 PIEZAS CRÍTICAS
+{chr(10).join(f"  {i+1}. {name}: {val:,.0f} PNC" for i,(name,val) in enumerate(top3_pie.items()))}
+
+DISTRIBUCIÓN STD-001
+• Devolución directa: {df_exp[df_exp["std"]=="D"]["cantidad_pnc"].sum():,.0f} PNC ({pctD_e:.0f}%)
+• Condicional: {df_exp[df_exp["std"]=="C"]["cantidad_pnc"].sum():,.0f} PNC ({df_exp[df_exp["std"]=="C"]["cantidad_pnc"].sum()/tot_e*100:.0f}%)
+• Tolerable: {df_exp[df_exp["std"]=="T"]["cantidad_pnc"].sum():,.0f} PNC ({df_exp[df_exp["std"]=="T"]["cantidad_pnc"].sum()/tot_e*100:.0f}%)
+
+Generado por: Sistema de Análisis de Calidad — AKT Motos
+Área de Desarrollo de Producto · Valentina Perdomo Perdomo
+"""
+        st.text_area("Resumen listo para copiar", resumen, height=380)
+        st.download_button(
+            "⬇️ Descargar como .txt",
+            data=resumen,
+            file_name=f"Resumen_{prov_exp}_{periodo_label.replace(' ','_')}.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
+
+# ── TAB GESTIÓN DE PERÍODOS ────────────────────────────────────
+with tab_mgmt:
+    st.markdown('<div class="sec-title">Períodos guardados</div>', unsafe_allow_html=True)
+    st.caption("Aquí puedes ver y eliminar períodos. Los períodos eliminados no aparecerán en ningún análisis.")
+
+    all_p = get_periodos()
+    if all_p.empty:
+        st.info("No hay períodos guardados")
+    else:
+        for _, row in all_p.iterrows():
+            col1, col2, col3, col4 = st.columns([3,2,2,1])
+            col1.markdown(f"**{row['nombre']}**")
+            col2.caption(f"📅 {row['fecha_carga']}")
+            col3.caption(f"📋 {row['registros']:,} registros")
+            if col4.button("🗑️", key=f"del_{row['id']}", help="Eliminar período"):
+                con = sqlite3.connect(DB_PATH)
+                con.execute("DELETE FROM registros WHERE periodo_id=?", (row['id'],))
+                con.execute("DELETE FROM acciones WHERE periodo_id=?", (row['id'],))
+                con.execute("DELETE FROM periodos WHERE id=?", (row['id'],))
+                con.commit(); con.close()
+                st.success(f"✅ {row['nombre']} eliminado")
+                st.rerun()
+
+        st.markdown("")
+        st.caption(f"Total: {len(all_p)} período(s) guardado(s)")
 
 # ── TAB ACCIONES ─────────────────────────────────────────────
 with tab_acc:
