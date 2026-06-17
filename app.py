@@ -624,15 +624,56 @@ with tab_comp:
                 def_a = df_a.groupby("damage")["cantidad_pnc"].sum().reset_index().rename(columns={"cantidad_pnc":per_a})
                 def_b = df_b.groupby("damage")["cantidad_pnc"].sum().reset_index().rename(columns={"cantidad_pnc":per_b})
                 def_cmp = def_a.merge(def_b, on="damage", how="outer").fillna(0)
-                def_cmp["Δ"] = def_cmp[per_b] - def_cmp[per_a]
+                def_cmp["Δ_raw"] = def_cmp[per_b] - def_cmp[per_a]
                 def_cmp = def_cmp.sort_values(per_b, ascending=False).head(10)
+
+                def_plot = pd.concat([
+                    def_cmp[["damage",per_a]].rename(columns={per_a:"PNC"}).assign(Período=per_a),
+                    def_cmp[["damage",per_b]].rename(columns={per_b:"PNC"}).assign(Período=per_b)
+                ])
+                fig_def_cmp = px.bar(def_plot, x="PNC", y="damage", color="Período", orientation="h",
+                    barmode="group", height=max(280, len(def_cmp)*32),
+                    labels={"damage":""}, color_discrete_sequence=["#3a8a51","#2d65aa"])
+                fig_def_cmp.update_layout(margin=dict(l=0,r=0,t=5,b=0),
+                    plot_bgcolor="white", paper_bgcolor="white",
+                    yaxis=dict(categoryorder="total ascending"))
+                st.plotly_chart(fig_def_cmp, use_container_width=True)
+
                 def_cmp["STD"] = def_cmp["damage"].map(STD).map({"D":"🔴","C":"🟡","T":"🟢"}).fillna("⚪")
-                def_cmp["Tendencia"] = def_cmp["Δ"].apply(lambda x: "⬆️" if x>0 else "⬇️" if x<0 else "➡️")
+                def_cmp["Tendencia"] = def_cmp["Δ_raw"].apply(lambda x: "⬆️" if x>0 else "⬇️" if x<0 else "➡️")
+                def_cmp["Δ"] = def_cmp["Δ_raw"].apply(lambda x: f"{x:+,.0f}")
                 def_cmp[per_a] = def_cmp[per_a].apply(lambda x: f"{x:,.0f}")
                 def_cmp[per_b] = def_cmp[per_b].apply(lambda x: f"{x:,.0f}")
-                def_cmp["Δ"] = def_cmp["Δ"].apply(lambda x: f"{x:+,.0f}")
                 st.dataframe(def_cmp[["STD","damage",per_a,per_b,"Δ","Tendencia"]]
                     .rename(columns={"damage":"Defecto"}),
+                    use_container_width=True, hide_index=True)
+
+                # Top piezas comparativo
+                st.markdown('<div class="sec-title">Top piezas críticas — comparativo</div>', unsafe_allow_html=True)
+                pie_a = df_a.groupby("articulo")["cantidad_pnc"].sum().reset_index().rename(columns={"cantidad_pnc":per_a})
+                pie_b = df_b.groupby("articulo")["cantidad_pnc"].sum().reset_index().rename(columns={"cantidad_pnc":per_b})
+                pie_cmp = pie_a.merge(pie_b, on="articulo", how="outer").fillna(0)
+                pie_cmp["Δ_raw"] = pie_cmp[per_b] - pie_cmp[per_a]
+                pie_cmp = pie_cmp.sort_values(per_b, ascending=False).head(10)
+
+                pie_plot = pd.concat([
+                    pie_cmp[["articulo",per_a]].rename(columns={per_a:"PNC"}).assign(Período=per_a),
+                    pie_cmp[["articulo",per_b]].rename(columns={per_b:"PNC"}).assign(Período=per_b)
+                ])
+                fig_pie_cmp = px.bar(pie_plot, x="PNC", y="articulo", color="Período", orientation="h",
+                    barmode="group", height=max(280, len(pie_cmp)*32),
+                    labels={"articulo":""}, color_discrete_sequence=["#3a8a51","#2d65aa"])
+                fig_pie_cmp.update_layout(margin=dict(l=0,r=0,t=5,b=0),
+                    plot_bgcolor="white", paper_bgcolor="white",
+                    yaxis=dict(categoryorder="total ascending"))
+                st.plotly_chart(fig_pie_cmp, use_container_width=True)
+
+                pie_cmp["Tendencia"] = pie_cmp["Δ_raw"].apply(lambda x: "🔴 Empeoró" if x>0 else "🟢 Mejoró" if x<0 else "➡️ Igual")
+                pie_cmp["Δ"] = pie_cmp["Δ_raw"].apply(lambda x: f"{x:+,.0f}")
+                pie_cmp[per_a] = pie_cmp[per_a].apply(lambda x: f"{x:,.0f}")
+                pie_cmp[per_b] = pie_cmp[per_b].apply(lambda x: f"{x:,.0f}")
+                st.dataframe(pie_cmp[["articulo",per_a,per_b,"Δ","Tendencia"]]
+                    .rename(columns={"articulo":"Pieza"}),
                     use_container_width=True, hide_index=True)
 
                 # ── INTERPRETACIÓN AUTOMÁTICA ──
