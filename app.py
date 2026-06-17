@@ -207,8 +207,8 @@ st.markdown(f'<div class="main-title">🏍 Análisis de Calidad — AKT Motos</d
 st.markdown(f"**Período:** {periodo_label} · {len(df):,} registros · {df['proveedor'].nunique()} proveedores")
 st.markdown("")
 
-tabs = st.tabs(["📊 Resumen","🏭 Por proveedor","🔍 Por defecto","🔧 Por pieza","📈 Comparar períodos","📄 Exportar","🗂️ Períodos","✅ Acciones"])
-tab_res, tab_prov, tab_def, tab_pie, tab_comp, tab_export, tab_mgmt, tab_acc = tabs
+tabs = st.tabs(["📊 Resumen","🏭 Por proveedor","🔍 Por defecto","🔧 Por pieza","📈 Comparar períodos","📄 Exportar","🗂️ Períodos"])
+tab_res, tab_prov, tab_def, tab_pie, tab_comp, tab_export, tab_mgmt = tabs
 
 # ── TAB RESUMEN ──────────────────────────────────────────────
 with tab_res:
@@ -919,47 +919,3 @@ with tab_mgmt:
 
         st.markdown("")
         st.caption(f"Total: {len(all_p)} período(s) guardado(s)")
-
-# ── TAB ACCIONES ─────────────────────────────────────────────
-with tab_acc:
-    st.markdown('<div class="sec-title">Registrar nueva acción</div>', unsafe_allow_html=True)
-    with st.form("form_acc"):
-        fa1,fa2 = st.columns(2)
-        with fa1:
-            ac_per  = fa1.selectbox("Período", list(periodo_options.keys()))
-            ac_prov = fa1.selectbox("Proveedor", sorted(df["proveedor"].unique()))
-            ac_dmg  = fa1.selectbox("Defecto", ["—"]+sorted(df["damage"].dropna().unique().tolist()))
-        with fa2:
-            ac_resp  = fa2.text_input("Responsable")
-            ac_fecha = fa2.date_input("Fecha de compromiso")
-            ac_est   = fa2.selectbox("Estado",["Pendiente","En proceso","Completada","Cancelada"])
-        ac_acc  = st.text_area("Acción", height=70)
-        ac_nota = st.text_area("Notas", height=50)
-        if st.form_submit_button("💾 Guardar",use_container_width=True) and ac_acc:
-            save_accion(periodo_options[ac_per],ac_prov,
-                ac_dmg if ac_dmg!="—" else "",
-                ac_acc,ac_resp,str(ac_fecha),ac_est,ac_nota)
-            st.success("✅ Acción guardada"); st.rerun()
-
-    st.markdown('<div class="sec-title">Seguimiento de acciones</div>', unsafe_allow_html=True)
-    ff1,ff2 = st.columns(2)
-    fil_prov = ff1.selectbox("Proveedor",["Todos"]+sorted(df["proveedor"].unique().tolist()),key="fil_p")
-    fil_est  = ff2.selectbox("Estado",["Todos","Pendiente","En proceso","Completada","Cancelada"])
-
-    acc_df = get_acciones(fil_prov if fil_prov!="Todos" else None)
-    if fil_est!="Todos": acc_df = acc_df[acc_df["estado"]==fil_est]
-
-    if acc_df.empty:
-        st.info("Sin acciones registradas")
-    else:
-        for _,ac in acc_df.iterrows():
-            est = ac["estado"]
-            css = "ac-done" if est=="Completada" else "ac-pend"
-            icon = {"Pendiente":"⏳","En proceso":"🔄","Completada":"✅","Cancelada":"❌"}.get(est,"⏳")
-            st.markdown(f'<div class="{css}"><strong>{icon} {ac["proveedor"]}</strong> — {ac["defecto"] or "General"} <span style="float:right;font-size:.75rem;color:#888">{ac["fecha_creacion"]} · {ac["periodo_nombre"]}</span><br><span style="font-size:.85rem">{ac["accion"]}</span><br><span style="font-size:.75rem;color:#666">Resp: {ac["responsable"] or "—"} · Compromiso: {ac["fecha_compromiso"] or "—"} · {est}</span></div>', unsafe_allow_html=True)
-            if est not in ["Completada","Cancelada"]:
-                b1,b2,_ = st.columns([1,1,4])
-                if b1.button("✅ Completar",key=f"c{ac['id']}"):
-                    update_accion(ac["id"],"Completada"); st.rerun()
-                if b2.button("🔄 En proceso",key=f"p{ac['id']}"):
-                    update_accion(ac["id"],"En proceso"); st.rerun()
