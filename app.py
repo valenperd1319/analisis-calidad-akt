@@ -207,16 +207,31 @@ with st.sidebar:
         st.stop()
     selected_ids = [periodo_options[p] for p in selected]
 
-    # Filtro de mes — aplica a toda la app
+    # Filtro de mes — por NOMBRE de mes (sin año), aplica a toda la app
+    def extraer_nombre_mes(m):
+        m_lower = str(m).lower()
+        for n in MES_ORDER:
+            if n in m_lower:
+                return n.capitalize()
+        return str(m)
+
     _df_preview = get_data(selected_ids)
     if not _df_preview.empty:
-        meses_disponibles = sorted(_df_preview["mes"].dropna().unique().tolist(), key=sort_mes)
-        meses_sel = st.multiselect(
-            "Filtrar por mes (vacío = todos)",
-            meses_disponibles,
-            default=[],
-            help="Útil para comparar el mismo rango de meses entre años, ej: enero a abril 2025 vs enero a abril 2026"
+        nombres_mes_disponibles = sorted(
+            set(extraer_nombre_mes(m) for m in _df_preview["mes"].dropna().unique()),
+            key=lambda n: MES_ORDER.index(n.lower()) if n.lower() in MES_ORDER else 99
         )
+        meses_sel_nombres = st.multiselect(
+            "Filtrar por mes (vacío = todos)",
+            nombres_mes_disponibles,
+            default=[],
+            help="Selecciona por nombre de mes — incluye ese mes de todos los años presentes en los períodos elegidos. Útil para comparar el mismo rango entre años, ej: enero a abril 2025 vs enero a abril 2026"
+        )
+        if meses_sel_nombres:
+            meses_sel = [m for m in _df_preview["mes"].dropna().unique()
+                         if extraer_nombre_mes(m) in meses_sel_nombres]
+        else:
+            meses_sel = []
     else:
         meses_sel = []
 
