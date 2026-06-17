@@ -787,7 +787,15 @@ th{{text-align:left;font-size:11px;color:#8a9e8e;font-weight:500;padding:0 10px 
 .fmeta{{font-family:'DM Mono',monospace;font-size:10px;color:#8a9e8e;text-align:right}}
 .print-btn{{display:flex;align-items:center;justify-content:center;gap:8px;background:{dark};color:#fff;border:none;border-radius:8px;padding:12px 28px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;margin:0 auto 20px;transition:opacity .2s;width:fit-content}}
 .print-btn:hover{{opacity:.85}}
-@media print{{.print-btn{{display:none!important}}body{{padding:0;background:#faf8f3!important}}.poster{{box-shadow:none!important;border-radius:0!important;padding:16px!important}}}}
+.card,.std-band,.header{{break-inside:avoid;page-break-inside:avoid}}
+@media print{{
+  .print-btn{{display:none!important}}
+  body{{padding:0;background:#faf8f3!important}}
+  .poster{{box-shadow:none!important;border-radius:0!important;padding:10px!important;gap:10px!important}}
+  .card,.std-band,.header,.two-col,table,img{{break-inside:avoid;page-break-inside:avoid}}
+  .card{{margin-bottom:6px}}
+  @page{{size:A4 landscape;margin:8mm}}
+}}
 </style></head><body>
 
 <button class="print-btn" onclick="window.print()">
