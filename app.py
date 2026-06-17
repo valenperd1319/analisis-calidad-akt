@@ -319,6 +319,10 @@ with tab_prov:
         k3.metric("% Devolución directa",f"{pctD:.0f}%")
         k4.metric("Tipo de proceso", proc_lbl)
 
+        tipos_en_prov = dfp["tipo_averia"].unique().tolist()
+        if not any(t.lower()=="pintura" for t in tipos_en_prov):
+            st.caption("ℹ️ La clasificación STD-001 (Devolución/Condicional/Tolerable) es oficial solo para Pintura. Para esta categoría es una aproximación basada en criterio técnico, no un estándar documentado por AKT.")
+
         l2,r2 = st.columns(2)
         with l2:
             st.markdown('<div class="sec-title">Top defectos por criticidad</div>', unsafe_allow_html=True)
@@ -471,14 +475,59 @@ with tab_comp:
         else:
             id_a = periodo_options[per_a]
             id_b = periodo_options[per_b]
-            df_a = get_data([id_a])
-            df_b = get_data([id_b])
+            df_a_full = get_data([id_a])
+            df_b_full = get_data([id_b])
 
-            if df_a.empty or df_b.empty:
+            if df_a_full.empty or df_b_full.empty:
                 st.warning("Uno de los períodos no tiene datos")
             else:
-                df_a["cantidad_pnc"] = pd.to_numeric(df_a["cantidad_pnc"],errors="coerce").fillna(0)
-                df_b["cantidad_pnc"] = pd.to_numeric(df_b["cantidad_pnc"],errors="coerce").fillna(0)
+                df_a_full["cantidad_pnc"] = pd.to_numeric(df_a_full["cantidad_pnc"],errors="coerce").fillna(0)
+                df_b_full["cantidad_pnc"] = pd.to_numeric(df_b_full["cantidad_pnc"],errors="coerce").fillna(0)
+
+                # Filtros — para comparar solo lo que tiene sentido entre archivos de distinto alcance
+                st.markdown("##### Filtros de la comparación (opcional)")
+                fc1, fc2, fc3 = st.columns(3)
+
+                tipos_disponibles = sorted(set(df_a_full["tipo_averia"].unique()) | set(df_b_full["tipo_averia"].unique()))
+                tipo_comp = fc1.multiselect("Tipo de avería", tipos_disponibles, default=[], key="tipo_comp_filter",
+                    help="Ej: solo Pintura, cuando un master tiene más categorías que el otro")
+
+                provs_disponibles = sorted(set(df_a_full["proveedor"].unique()) | set(df_b_full["proveedor"].unique()))
+                prov_comp = fc2.multiselect("Proveedor", provs_disponibles, default=[], key="prov_comp_filter")
+
+                modelos_disponibles = sorted(set(df_a_full["modelo"].unique()) | set(df_b_full["modelo"].unique()))
+                modelo_comp = fc3.multiselect("Modelo", modelos_disponibles, default=[], key="modelo_comp_filter",
+                    help="Útil si un período incluye modelos nuevos que el otro no tenía")
+
+                std_comp = st.multiselect("Clasificación STD-001", ["D — Devolución directa","C — Condicional","T — Tolerable"],
+                    default=[], key="std_comp_filter")
+
+                df_a, df_b = df_a_full.copy(), df_b_full.copy()
+                filtros_activos = []
+                if tipo_comp:
+                    df_a = df_a[df_a["tipo_averia"].isin(tipo_comp)]
+                    df_b = df_b[df_b["tipo_averia"].isin(tipo_comp)]
+                    filtros_activos.append(f"Tipo: {', '.join(tipo_comp)}")
+                if prov_comp:
+                    df_a = df_a[df_a["proveedor"].isin(prov_comp)]
+                    df_b = df_b[df_b["proveedor"].isin(prov_comp)]
+                    filtros_activos.append(f"Proveedor: {', '.join(prov_comp)}")
+                if modelo_comp:
+                    df_a = df_a[df_a["modelo"].isin(modelo_comp)]
+                    df_b = df_b[df_b["modelo"].isin(modelo_comp)]
+                    filtros_activos.append(f"Modelo: {', '.join(modelo_comp)}")
+                if std_comp:
+                    std_letters = [s[0] for s in std_comp]
+                    df_a = df_a[df_a["std"].isin(std_letters)]
+                    df_b = df_b[df_b["std"].isin(std_letters)]
+                    filtros_activos.append(f"STD-001: {', '.join(std_comp)}")
+
+                if filtros_activos:
+                    st.caption("📌 Filtros activos — " + " · ".join(filtros_activos))
+
+                if df_a.empty or df_b.empty:
+                    st.warning("No hay datos para esa combinación de filtros en uno de los períodos")
+                    st.stop()
 
                 # KPI comparison
                 st.markdown('<div class="sec-title">Resumen general</div>', unsafe_allow_html=True)
