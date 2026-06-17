@@ -417,6 +417,167 @@ def boton_exportar(df_scope, titulo, subtitulo, color_key="generic", filename_hi
         )
         st.components.v1.html(html_rep, height=600, scrolling=True)
 
+def generar_reporte_comparativo_html(per_a, per_b, tot_a, tot_b, dev_a, dev_b, pctD_a, pctD_b,
+                                      prov_cmp, def_cmp, pie_cmp, insights, filtros_txt=""):
+    """Genera un único HTML/PDF con la comparación completa entre dos períodos."""
+    import plotly.io as pio, base64
+
+    delta_tot = tot_b - tot_a
+    delta_pct = (delta_tot/tot_a*100) if tot_a else 0
+
+    # Gráfica de proveedores
+    prov_a2 = prov_cmp[["proveedor", per_a]].rename(columns={per_a:"PNC"}).assign(Período=per_a)
+    prov_b2 = prov_cmp[["proveedor", per_b]].rename(columns={per_b:"PNC"}).assign(Período=per_b)
+    prov_plot = pd.concat([prov_a2, prov_b2])
+    prov_plot["PNC"] = pd.to_numeric(prov_plot["PNC"].astype(str).str.replace(",",""), errors="coerce")
+    fig_prov = px.bar(prov_plot, x="proveedor", y="PNC", color="Período", barmode="group",
+        height=260, labels={"proveedor":""}, color_discrete_sequence=["#3a8a51","#2d65aa"])
+    fig_prov.update_layout(template="plotly_white", margin=dict(l=5,r=5,t=10,b=40),
+        plot_bgcolor="white", paper_bgcolor="white", font=dict(color="#333"),
+        legend=dict(orientation="h", y=-0.25))
+    prov_img = base64.b64encode(pio.to_image(fig_prov, format="png", width=620, height=260)).decode()
+
+    # Tabla proveedores HTML
+    prov_rows = ""
+    for _, r in prov_cmp.iterrows():
+        prov_rows += f"""<tr>
+          <td style="padding:6px 10px;font-size:11px;border-bottom:1px solid #f0ece2">{r['proveedor']}</td>
+          <td style="padding:6px 10px;font-size:11px;border-bottom:1px solid #f0ece2;text-align:right;font-family:monospace">{r[per_a]}</td>
+          <td style="padding:6px 10px;font-size:11px;border-bottom:1px solid #f0ece2;text-align:right;font-family:monospace">{r[per_b]}</td>
+          <td style="padding:6px 10px;font-size:11px;border-bottom:1px solid #f0ece2;text-align:right">{r['Tendencia']}</td>
+        </tr>"""
+
+    # Tabla defectos top 8
+    def_rows = ""
+    for _, r in def_cmp.head(8).iterrows():
+        def_rows += f"""<tr>
+          <td style="padding:6px 10px;font-size:11px;border-bottom:1px solid #f0ece2">{r['Defecto']}</td>
+          <td style="padding:6px 10px;font-size:11px;border-bottom:1px solid #f0ece2;text-align:right;font-family:monospace">{r[per_a]}</td>
+          <td style="padding:6px 10px;font-size:11px;border-bottom:1px solid #f0ece2;text-align:right;font-family:monospace">{r[per_b]}</td>
+          <td style="padding:6px 10px;font-size:11px;border-bottom:1px solid #f0ece2;text-align:right">{r['Tendencia']}</td>
+        </tr>"""
+
+    # Tabla piezas top 8
+    pie_rows = ""
+    for _, r in pie_cmp.head(8).iterrows():
+        pie_rows += f"""<tr>
+          <td style="padding:6px 10px;font-size:11px;border-bottom:1px solid #f0ece2">{r['Pieza']}</td>
+          <td style="padding:6px 10px;font-size:11px;border-bottom:1px solid #f0ece2;text-align:right;font-family:monospace">{r[per_a]}</td>
+          <td style="padding:6px 10px;font-size:11px;border-bottom:1px solid #f0ece2;text-align:right;font-family:monospace">{r[per_b]}</td>
+          <td style="padding:6px 10px;font-size:11px;border-bottom:1px solid #f0ece2;text-align:right">{r['Tendencia']}</td>
+        </tr>"""
+
+    # Insights HTML
+    insights_html = ""
+    for bg, border, icon, txt in insights:
+        insights_html += f"""<div style="background:{bg};border-left:3px solid {border};
+            padding:10px 14px;border-radius:0 8px 8px 0;margin:6px 0">
+            <div style="font-size:11px;color:#333;line-height:1.5">{icon} {txt}</div>
+        </div>"""
+    if not insights_html:
+        insights_html = '<p style="font-size:12px;color:#888">No se detectaron cambios significativos entre los dos períodos.</p>'
+
+    dark, dark2, accent, light2 = "#1a1a2e","#2d2d4a","#5a5a9a","#9a9add"
+
+    html_poster = f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+html,body,*{{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}}
+body{{background:#e8e8e6;font-family:'DM Sans',sans-serif;font-weight:300;padding:28px 40px;color:#111}}
+.poster{{max-width:980px;margin:0 auto;display:grid;gap:16px;background:#faf8f3;padding:32px;border-radius:16px;box-shadow:0 4px 32px rgba(0,0,0,.08)}}
+.header{{background:{dark};border-radius:12px;padding:28px 36px}}
+.hlabel{{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.15em;color:{light2};text-transform:uppercase;margin-bottom:6px}}
+.htitle{{font-family:'DM Serif Display',serif;font-size:1.8rem;color:#fff;line-height:1.2}}
+.hsub{{font-size:12px;color:{light2};margin-top:6px}}
+.kpis-row{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}}
+.kpi-box{{background:rgba(255,255,255,.06);border-radius:8px;padding:12px 16px}}
+.kpi-box-lbl{{font-size:9px;color:{light2};text-transform:uppercase;letter-spacing:.06em}}
+.kpi-box-val{{font-family:'DM Serif Display',serif;font-size:1.3rem;color:#fff;margin-top:2px}}
+.kpi-box-delta{{font-size:10px;margin-top:2px}}
+.card{{background:#fff;border-radius:10px;padding:18px 20px;border:1px solid rgba(0,0,0,.06)}}
+.card-title{{font-family:'DM Serif Display',serif;font-size:.95rem;color:#0f1520;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #f0ece2}}
+table{{width:100%;border-collapse:collapse}}
+th{{text-align:left;font-size:10px;color:#8a9e8e;font-weight:500;padding:0 10px 8px;text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid #f0ece2}}
+.two-col{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
+.footer{{display:flex;justify-content:space-between;align-items:center;padding:12px 0 0;border-top:1px solid #f0ece2}}
+.fbrand{{font-family:'DM Serif Display',serif;font-size:.95rem;color:{accent}}}
+.fmeta{{font-family:'DM Mono',monospace;font-size:10px;color:#8a9e8e;text-align:right}}
+.print-btn{{display:flex;align-items:center;justify-content:center;gap:8px;background:{dark};color:#fff;border:none;border-radius:8px;padding:12px 28px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;margin:0 auto 20px;transition:opacity .2s;width:fit-content}}
+.print-btn:hover{{opacity:.85}}
+.card,.header{{break-inside:avoid;page-break-inside:avoid}}
+.page-break-before{{page-break-before:always;break-before:page}}
+@media print{{
+  .print-btn{{display:none!important}}
+  body{{padding:0;background:#faf8f3!important}}
+  .poster{{box-shadow:none!important;border-radius:0!important;padding:10px!important;gap:10px!important}}
+  .card,.header,.two-col,table{{break-inside:avoid;page-break-inside:avoid}}
+  .card{{margin-bottom:6px}}
+  .page-break-before{{page-break-before:always;break-before:page}}
+  @page{{size:A4 portrait;margin:10mm}}
+}}
+</style></head><body>
+
+<button class="print-btn" onclick="window.print()">⬇️ Descargar como PDF</button>
+
+<div class="poster">
+
+<header class="header">
+  <div class="hlabel">Comparación de períodos — AKT Motos</div>
+  <h1 class="htitle">{per_a} <span style="color:{light2}">vs</span> {per_b}</h1>
+  <p class="hsub">{filtros_txt if filtros_txt else "Sin filtros adicionales aplicados"}</p>
+  <div class="kpis-row">
+    <div class="kpi-box"><div class="kpi-box-lbl">PNC · {per_a}</div><div class="kpi-box-val">{tot_a:,.0f}</div></div>
+    <div class="kpi-box"><div class="kpi-box-lbl">PNC · {per_b}</div><div class="kpi-box-val">{tot_b:,.0f}</div>
+      <div class="kpi-box-delta" style="color:{'#ff9a8a' if delta_tot>0 else '#9ae8b0'}">{delta_tot:+,.0f} ({delta_pct:+.1f}%)</div></div>
+    <div class="kpi-box"><div class="kpi-box-lbl">Dev. directa · {per_a}</div><div class="kpi-box-val">{pctD_a:.0f}%</div></div>
+    <div class="kpi-box"><div class="kpi-box-lbl">Dev. directa · {per_b}</div><div class="kpi-box-val">{pctD_b:.0f}%</div></div>
+  </div>
+</header>
+
+<div class="card">
+  <div class="card-title">PNC por proveedor — comparativo</div>
+  <img src="data:image/png;base64,{prov_img}" style="width:100%;border-radius:4px"/>
+  <table style="margin-top:10px">
+    <tr><th>Proveedor</th><th style="text-align:right">{per_a}</th><th style="text-align:right">{per_b}</th><th style="text-align:right">Tendencia</th></tr>
+    {prov_rows}
+  </table>
+</div>
+
+<div class="two-col page-break-before">
+  <div class="card">
+    <div class="card-title">Top defectos — comparativo</div>
+    <table>
+      <tr><th>Defecto</th><th style="text-align:right">{per_a}</th><th style="text-align:right">{per_b}</th><th style="text-align:right">Δ</th></tr>
+      {def_rows}
+    </table>
+  </div>
+  <div class="card">
+    <div class="card-title">Top piezas — comparativo</div>
+    <table>
+      <tr><th>Pieza</th><th style="text-align:right">{per_a}</th><th style="text-align:right">{per_b}</th><th style="text-align:right">Δ</th></tr>
+      {pie_rows}
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">🔍 Qué cambió — interpretación automática</div>
+  {insights_html}
+</div>
+
+<footer class="footer">
+  <span class="fbrand">AKT Motos · Área de Desarrollo de Producto</span>
+  <div class="fmeta">
+    <div>Modelo de Análisis y Priorización de Defectos de Pintura</div>
+    <div>Valentina Perdomo Perdomo · Ingeniería de Diseño de Producto</div>
+  </div>
+</footer>
+</div>
+</body></html>"""
+    return html_poster
+
 
 st.markdown("""<style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap');
@@ -929,9 +1090,8 @@ with tab_comp:
                 def_cmp["Δ"] = def_cmp["Δ_raw"].apply(lambda x: f"{x:+,.0f}")
                 def_cmp[per_a] = def_cmp[per_a].apply(lambda x: f"{x:,.0f}")
                 def_cmp[per_b] = def_cmp[per_b].apply(lambda x: f"{x:,.0f}")
-                st.dataframe(def_cmp[["STD","damage",per_a,per_b,"Δ","Tendencia"]]
-                    .rename(columns={"damage":"Defecto"}),
-                    use_container_width=True, hide_index=True)
+                def_cmp_display = def_cmp[["STD","damage",per_a,per_b,"Δ","Tendencia"]].rename(columns={"damage":"Defecto"})
+                st.dataframe(def_cmp_display, use_container_width=True, hide_index=True)
 
                 # Top piezas comparativo
                 st.markdown('<div class="sec-title">Top piezas críticas — comparativo</div>', unsafe_allow_html=True)
@@ -957,9 +1117,8 @@ with tab_comp:
                 pie_cmp["Δ"] = pie_cmp["Δ_raw"].apply(lambda x: f"{x:+,.0f}")
                 pie_cmp[per_a] = pie_cmp[per_a].apply(lambda x: f"{x:,.0f}")
                 pie_cmp[per_b] = pie_cmp[per_b].apply(lambda x: f"{x:,.0f}")
-                st.dataframe(pie_cmp[["articulo",per_a,per_b,"Δ","Tendencia"]]
-                    .rename(columns={"articulo":"Pieza"}),
-                    use_container_width=True, hide_index=True)
+                pie_cmp_display = pie_cmp[["articulo",per_a,per_b,"Δ","Tendencia"]].rename(columns={"articulo":"Pieza"})
+                st.dataframe(pie_cmp_display, use_container_width=True, hide_index=True)
 
                 # ── INTERPRETACIÓN AUTOMÁTICA ──
                 st.markdown('<div class="sec-title">🔍 Qué cambió — interpretación automática</div>', unsafe_allow_html=True)
@@ -1073,18 +1232,22 @@ with tab_comp:
 
                 st.divider()
                 with st.expander("📄 Exportar esta comparación a PDF"):
-                    st.caption(f"Genera dos reportes — uno para {per_a} y otro para {per_b} — con los mismos filtros aplicados aquí.")
-                    ce1, ce2 = st.columns(2)
-                    html_a = generar_reporte_html(df_a, per_a, f"Comparativo vs {per_b}", "generic")
-                    html_b = generar_reporte_html(df_b, per_b, f"Comparativo vs {per_a}", "generic")
-                    if html_a:
-                        ce1.download_button(f"⬇️ Descargar {per_a}", data=html_a,
-                            file_name=f"Comparativo_{per_a.replace(' ','_')}.html", mime="text/html",
-                            use_container_width=True, key="dl_comp_a")
-                    if html_b:
-                        ce2.download_button(f"⬇️ Descargar {per_b}", data=html_b,
-                            file_name=f"Comparativo_{per_b.replace(' ','_')}.html", mime="text/html",
-                            use_container_width=True, key="dl_comp_b")
+                    st.caption("Genera un único reporte con ambos períodos lado a lado, igual a como se ve en esta pestaña.")
+                    html_comp = generar_reporte_comparativo_html(
+                        per_a, per_b, tot_a, tot_b, dev_a, dev_b, pctD_a, pctD_b,
+                        prov_cmp, def_cmp_display, pie_cmp_display, insights,
+                        filtros_txt=" · ".join(filtros_activos) if filtros_activos else ""
+                    )
+                    st.download_button(
+                        "⬇️ Descargar comparación completa",
+                        data=html_comp,
+                        file_name=f"Comparacion_{per_a.replace(' ','_')}_vs_{per_b.replace(' ','_')}.html",
+                        mime="text/html",
+                        use_container_width=True,
+                        type="primary",
+                        key="dl_comp_full"
+                    )
+                    st.components.v1.html(html_comp, height=700, scrolling=True)
 
 # ── TAB EXPORTAR ─────────────────────────────────────────────
 with tab_export:
