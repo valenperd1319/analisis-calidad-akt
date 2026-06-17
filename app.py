@@ -666,8 +666,8 @@ with tab_export:
         fig_trend = px.bar(mes_data, x="mes", y="cantidad_pnc", color="Estado",
             color_discrete_map={"Normal":"#52b06b","Sobre promedio":"#c9840a","Anómalo":"#c0392b"},
             height=220, labels={"cantidad_pnc":"PNC","mes":""})
-        fig_trend.update_layout(margin=dict(l=10,r=10,t=10,b=40),
-            plot_bgcolor="white", paper_bgcolor="white",
+        fig_trend.update_layout(template="plotly_white", margin=dict(l=10,r=10,t=10,b=40),
+            plot_bgcolor="white", paper_bgcolor="white", font=dict(color="#333"),
             showlegend=True, legend=dict(orientation="h",y=-0.3),
             xaxis=dict(tickangle=-45, tickfont=dict(size=10)))
         trend_img = base64.b64encode(pio.to_image(fig_trend, format="png", width=700, height=220)).decode()
@@ -679,7 +679,7 @@ with tab_export:
             names=["Devolución directa","Condicional","Tolerable"],
             color_discrete_map={"Devolución directa":"#c0392b","Condicional":"#c9840a","Tolerable":"#2d6b3f"},
             height=200)
-        fig_pie_chart.update_layout(margin=dict(l=0,r=0,t=10,b=0),paper_bgcolor="white",
+        fig_pie_chart.update_layout(template="plotly_white", margin=dict(l=0,r=0,t=10,b=0),paper_bgcolor="white", font=dict(color="#333"),
             legend=dict(font=dict(size=10)))
         pie_img = base64.b64encode(pio.to_image(fig_pie_chart, format="png", width=320, height=200)).decode()
 
@@ -688,8 +688,8 @@ with tab_export:
         fig_def = px.bar(top5_def_sorted, x="pnc", y="damage", orientation="h",
             color="std", color_discrete_map=STD_COLORS,
             height=200, labels={"pnc":"PNC","damage":"","std":"STD"})
-        fig_def.update_layout(margin=dict(l=0,r=10,t=10,b=0),
-            plot_bgcolor="white", paper_bgcolor="white",
+        fig_def.update_layout(template="plotly_white", margin=dict(l=0,r=10,t=10,b=0),
+            plot_bgcolor="white", paper_bgcolor="white", font=dict(color="#333"),
             legend=dict(font=dict(size=10), orientation="h", y=-0.3))
         def_img = base64.b64encode(pio.to_image(fig_def, format="png", width=380, height=200)).decode()
 
