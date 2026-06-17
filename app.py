@@ -206,6 +206,20 @@ with st.sidebar:
         st.warning("Selecciona al menos un período")
         st.stop()
     selected_ids = [periodo_options[p] for p in selected]
+
+    # Filtro de mes — aplica a toda la app
+    _df_preview = get_data(selected_ids)
+    if not _df_preview.empty:
+        meses_disponibles = sorted(_df_preview["mes"].dropna().unique().tolist(), key=sort_mes)
+        meses_sel = st.multiselect(
+            "Filtrar por mes (vacío = todos)",
+            meses_disponibles,
+            default=[],
+            help="Útil para comparar el mismo rango de meses entre años, ej: enero a abril 2025 vs enero a abril 2026"
+        )
+    else:
+        meses_sel = []
+
     st.divider()
     with st.expander("⚙️ Gestión de datos"):
         if st.button("🗑️ Borrar todos los datos", use_container_width=True, type="secondary"):
@@ -222,9 +236,15 @@ with st.sidebar:
 df = get_data(selected_ids)
 if df.empty:
     st.warning("Sin datos"); st.stop()
+if meses_sel:
+    df = df[df["mes"].isin(meses_sel)]
+    if df.empty:
+        st.warning("No hay datos para los meses seleccionados"); st.stop()
 df["cantidad_pnc"] = pd.to_numeric(df["cantidad_pnc"],errors="coerce").fillna(0)
 df["criticidad"]   = pd.to_numeric(df["criticidad"],errors="coerce").fillna(0)
 periodo_label = " + ".join(selected)
+if meses_sel:
+    periodo_label += f" (meses: {', '.join(meses_sel)})"
 
 st.markdown(f'<div class="main-title">🏍 Análisis de Calidad — AKT Motos</div>', unsafe_allow_html=True)
 st.markdown(f"**Período:** {periodo_label} · {len(df):,} registros · {df['proveedor'].nunique()} proveedores")
@@ -477,9 +497,12 @@ with tab_comp:
             id_b = periodo_options[per_b]
             df_a_full = get_data([id_a])
             df_b_full = get_data([id_b])
+            if meses_sel:
+                df_a_full = df_a_full[df_a_full["mes"].isin(meses_sel)]
+                df_b_full = df_b_full[df_b_full["mes"].isin(meses_sel)]
 
             if df_a_full.empty or df_b_full.empty:
-                st.warning("Uno de los períodos no tiene datos")
+                st.warning("Uno de los períodos no tiene datos" + (" para los meses seleccionados" if meses_sel else ""))
             else:
                 df_a_full["cantidad_pnc"] = pd.to_numeric(df_a_full["cantidad_pnc"],errors="coerce").fillna(0)
                 df_b_full["cantidad_pnc"] = pd.to_numeric(df_b_full["cantidad_pnc"],errors="coerce").fillna(0)
