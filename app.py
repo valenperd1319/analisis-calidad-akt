@@ -638,53 +638,251 @@ with tab_comp:
 # ── TAB EXPORTAR ─────────────────────────────────────────────
 with tab_export:
     st.markdown('<div class="sec-title">Exportar resumen ejecutivo por proveedor</div>', unsafe_allow_html=True)
-    st.info("Selecciona un proveedor y descarga un resumen en formato texto listo para pegar en un informe o correo.")
 
     provs_exp = sorted(df["proveedor"].unique())
-    prov_exp = st.selectbox("Proveedor", provs_exp, key="exp_prov")
+    col_e1, col_e2 = st.columns(2)
+    prov_exp = col_e1.selectbox("Proveedor", provs_exp, key="exp_prov")
     df_exp = df[df["proveedor"]==prov_exp].copy()
 
     if not df_exp.empty:
-        tot_e = df_exp["cantidad_pnc"].sum()
-        avg_e = df_exp.groupby("mes")["cantidad_pnc"].sum().mean()
-        pctD_e = df_exp[df_exp["std"]=="D"]["cantidad_pnc"].sum()/tot_e*100 if tot_e else 0
-        top3_def = df_exp.groupby("damage")["cantidad_pnc"].sum().sort_values(ascending=False).head(3)
-        top3_pie = df_exp.groupby("articulo")["cantidad_pnc"].sum().sort_values(ascending=False).head(3)
-        proc_e = PROV_PROCESS.get(prov_exp,"")
+        tot_e   = df_exp["cantidad_pnc"].sum()
+        avg_e   = df_exp.groupby("mes")["cantidad_pnc"].sum().mean()
+        pctD_e  = df_exp[df_exp["std"]=="D"]["cantidad_pnc"].sum()/tot_e*100 if tot_e else 0
+        pctC_e  = df_exp[df_exp["std"]=="C"]["cantidad_pnc"].sum()/tot_e*100 if tot_e else 0
+        pctT_e  = df_exp[df_exp["std"]=="T"]["cantidad_pnc"].sum()/tot_e*100 if tot_e else 0
+        top5_def = df_exp.groupby(["damage","std"]).agg(pnc=("cantidad_pnc","sum")).sort_values("pnc",ascending=False).head(5).reset_index()
+        top5_pie = df_exp.groupby("articulo")["cantidad_pnc"].sum().sort_values(ascending=False).head(5).reset_index()
+        mes_data = df_exp.groupby("mes")["cantidad_pnc"].sum().reset_index()
+        mes_data["_sort"] = mes_data["mes"].apply(sort_mes)
+        mes_data = mes_data.sort_values("_sort")
+        proc_e   = PROV_PROCESS.get(prov_exp,"")
         proc_lbl_e = "Por lotes (horno cerrado)" if proc_e=="batch" else "Línea continua (horno abierto)" if proc_e=="continuo" else "No especificado"
 
-        resumen = f"""RESUMEN EJECUTIVO DE CALIDAD — {prov_exp}
-Período analizado: {periodo_label}
-{'='*50}
+        # Build bar chart as base64
+        import plotly.io as pio, base64, io
+        avg_v = mes_data["cantidad_pnc"].mean()
+        mes_data["Estado"] = mes_data["cantidad_pnc"].apply(
+            lambda v:"Anómalo" if v>avg_v*1.3 else "Sobre promedio" if v>avg_v else "Normal")
+        fig_trend = px.bar(mes_data, x="mes", y="cantidad_pnc", color="Estado",
+            color_discrete_map={"Normal":"#52b06b","Sobre promedio":"#c9840a","Anómalo":"#c0392b"},
+            height=220, labels={"cantidad_pnc":"PNC","mes":""})
+        fig_trend.update_layout(margin=dict(l=10,r=10,t=10,b=40),
+            plot_bgcolor="white", paper_bgcolor="white",
+            showlegend=True, legend=dict(orientation="h",y=-0.3),
+            xaxis=dict(tickangle=-45, tickfont=dict(size=10)))
+        trend_img = base64.b64encode(pio.to_image(fig_trend, format="png", width=700, height=220)).decode()
 
-INDICADORES PRINCIPALES
-• PNC Totales: {tot_e:,.0f}
-• Promedio mensual: {avg_e:,.0f} PNC/mes
-• % Devolución directa (STD-001): {pctD_e:.0f}%
-• Tipo de proceso: {proc_lbl_e}
+        fig_pie_chart = px.pie(
+            values=[df_exp[df_exp["std"]=="D"]["cantidad_pnc"].sum(),
+                    df_exp[df_exp["std"]=="C"]["cantidad_pnc"].sum(),
+                    df_exp[df_exp["std"]=="T"]["cantidad_pnc"].sum()],
+            names=["Devolución directa","Condicional","Tolerable"],
+            color_discrete_map={"Devolución directa":"#c0392b","Condicional":"#c9840a","Tolerable":"#2d6b3f"},
+            height=200)
+        fig_pie_chart.update_layout(margin=dict(l=0,r=0,t=10,b=0),paper_bgcolor="white",
+            legend=dict(font=dict(size=10)))
+        pie_img = base64.b64encode(pio.to_image(fig_pie_chart, format="png", width=320, height=200)).decode()
 
-TOP 3 DEFECTOS
-{chr(10).join(f"  {i+1}. {name}: {val:,.0f} PNC ({val/tot_e*100:.1f}%)" for i,(name,val) in enumerate(top3_def.items()))}
+        # Build defectos bars
+        top5_def_sorted = top5_def.copy()
+        fig_def = px.bar(top5_def_sorted, x="pnc", y="damage", orientation="h",
+            color="std", color_discrete_map=STD_COLORS,
+            height=200, labels={"pnc":"PNC","damage":"","std":"STD"})
+        fig_def.update_layout(margin=dict(l=0,r=10,t=10,b=0),
+            plot_bgcolor="white", paper_bgcolor="white",
+            legend=dict(font=dict(size=10), orientation="h", y=-0.3))
+        def_img = base64.b64encode(pio.to_image(fig_def, format="png", width=380, height=200)).decode()
 
-TOP 3 PIEZAS CRÍTICAS
-{chr(10).join(f"  {i+1}. {name}: {val:,.0f} PNC" for i,(name,val) in enumerate(top3_pie.items()))}
+        # STD rows
+        std_rows = ""
+        for _, r in top5_def.iterrows():
+            s = r["std"]
+            badge_color = "#c0392b" if s=="D" else "#c9840a" if s=="C" else "#2d6b3f"
+            badge_bg = "#fdf0ef" if s=="D" else "#fef9ed" if s=="C" else "#e8f5ec"
+            badge_lbl = "Devolución" if s=="D" else "Condicional" if s=="C" else "Tolerable"
+            pct = r["pnc"]/tot_e*100 if tot_e else 0
+            std_rows += f"""<tr>
+              <td style="padding:7px 10px;font-size:12px;border-bottom:1px solid #f0ece2">{r['damage']}</td>
+              <td style="padding:7px 10px;font-size:12px;border-bottom:1px solid #f0ece2;text-align:center">
+                <span style="background:{badge_bg};color:{badge_color};padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600">{badge_lbl}</span>
+              </td>
+              <td style="padding:7px 10px;font-size:12px;border-bottom:1px solid #f0ece2;text-align:right;font-family:monospace">{r['pnc']:,.0f}</td>
+              <td style="padding:7px 10px;font-size:12px;border-bottom:1px solid #f0ece2;text-align:right;color:#888">{pct:.1f}%</td>
+            </tr>"""
 
-DISTRIBUCIÓN STD-001
-• Devolución directa: {df_exp[df_exp["std"]=="D"]["cantidad_pnc"].sum():,.0f} PNC ({pctD_e:.0f}%)
-• Condicional: {df_exp[df_exp["std"]=="C"]["cantidad_pnc"].sum():,.0f} PNC ({df_exp[df_exp["std"]=="C"]["cantidad_pnc"].sum()/tot_e*100:.0f}%)
-• Tolerable: {df_exp[df_exp["std"]=="T"]["cantidad_pnc"].sum():,.0f} PNC ({df_exp[df_exp["std"]=="T"]["cantidad_pnc"].sum()/tot_e*100:.0f}%)
+        pie_rows = ""
+        for i, r in top5_pie.iterrows():
+            pie_rows += f"""<tr>
+              <td style="padding:7px 10px;font-size:12px;border-bottom:1px solid #f0ece2;color:#3a8a51;font-weight:600">{i+1}</td>
+              <td style="padding:7px 10px;font-size:12px;border-bottom:1px solid #f0ece2">{r['articulo']}</td>
+              <td style="padding:7px 10px;font-size:12px;border-bottom:1px solid #f0ece2;text-align:right;font-family:monospace">{r['cantidad_pnc']:,.0f}</td>
+            </tr>"""
 
-Generado por: Sistema de Análisis de Calidad — AKT Motos
-Área de Desarrollo de Producto · Valentina Perdomo Perdomo
-"""
-        st.text_area("Resumen listo para copiar", resumen, height=380)
+        # Recomendaciones
+        top3_dmg = df_exp.groupby(["damage","std"]).agg(pnc=("cantidad_pnc","sum"),crit=("criticidad","sum")).sort_values("crit",ascending=False).head(3).reset_index()
+        reco_html = ""
+        for _, r in top3_dmg.iterrows():
+            kbE = KB.get(r["damage"], {})
+            s = r["std"]
+            border = "#c0392b" if s=="D" else "#c9840a" if s=="C" else "#2d6b3f"
+            bg = "#fdf0ef" if s=="D" else "#fef9ed" if s=="C" else "#e8f5ec"
+            icon = "🔴" if s=="D" else "🟡" if s=="C" else "🟢"
+            causa = kbE.get("causas",[""])[0] if kbE.get("causas") else ""
+            sol   = kbE.get("soluciones",[""])[0] if kbE.get("soluciones") else ""
+            proc_recs = KB.get("_process_recs",{}).get(r["damage"],{})
+            proc_rec  = proc_recs.get(proc_e,"") if proc_e else ""
+            txt = f"{r['pnc']:,.0f} PNC."
+            if causa: txt += f" Causa frecuente: {causa}."
+            if sol:   txt += f" {sol}."
+            if proc_rec: txt += f" {proc_rec}"
+            reco_html += f"""<div style="background:{bg};border-left:3px solid {border};
+                padding:10px 14px;border-radius:0 8px 8px 0;margin:6px 0">
+                <div style="font-weight:600;font-size:12px;margin-bottom:3px">{icon} {r['damage']}</div>
+                <div style="font-size:11px;color:#444;line-height:1.5">{txt}</div>
+            </div>"""
+
+        # FULL HTML POSTER
+        prov_title = prov_exp.replace("SERVIPINTARTE","SERVI<em>PINTARTE</em>").replace("INTERAUTOS","INTER<em>AUTOS</em>")
+        is_servi = "SERVI" in prov_exp
+        dark = "#0f2718" if is_servi else "#0d1f35" if "INTER" in prov_exp else "#1a1a2e"
+        dark2 = "#1a3d25" if is_servi else "#162d4f" if "INTER" in prov_exp else "#2d2d4a"
+        accent = "#3a8a51" if is_servi else "#2d65aa" if "INTER" in prov_exp else "#5a5a9a"
+        light2 = "#7dca92" if is_servi else "#7aaee0" if "INTER" in prov_exp else "#9a9add"
+
+        html_poster = f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+html,body,*{{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}}
+body{{background:#e8e8e6;font-family:'DM Sans',sans-serif;font-weight:300;padding:28px 40px;color:#111}}
+.poster{{max-width:960px;margin:0 auto;display:grid;gap:16px;background:#faf8f3;padding:32px;border-radius:16px;box-shadow:0 4px 32px rgba(0,0,0,.08)}}
+.header{{background:{dark};border-radius:12px;padding:28px 36px;display:grid;grid-template-columns:1fr auto;align-items:end;gap:20px}}
+.hlabel{{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.15em;color:{light2};text-transform:uppercase;margin-bottom:6px}}
+.htitle{{font-family:'DM Serif Display',serif;font-size:2rem;color:#fff;line-height:1.1}}
+.htitle em{{color:{light2};font-style:italic}}
+.hsub{{font-size:12px;color:{light2};margin-top:6px}}
+.kpis{{display:flex;gap:20px;text-align:right}}
+.kpi{{display:flex;flex-direction:column;align-items:flex-end}}
+.kval{{font-family:'DM Serif Display',serif;font-size:1.8rem;color:#fff;line-height:1}}
+.klbl{{font-size:10px;color:#7dca92;letter-spacing:.08em;text-transform:uppercase;margin-top:3px}}
+.kdiv{{width:1px;background:rgba(255,255,255,.15);align-self:stretch}}
+.std-band{{background:{dark2};border-radius:8px;padding:14px 24px;display:grid;grid-template-columns:auto 1fr 1fr 1fr;align-items:center;gap:0}}
+.stdlbl{{font-family:'DM Mono',monospace;font-size:10px;color:{light2};text-transform:uppercase;padding-right:20px;border-right:1px solid rgba(255,255,255,.1);white-space:nowrap}}
+.std-item{{display:flex;align-items:center;gap:10px;padding:0 16px;border-right:1px solid rgba(255,255,255,.1)}}
+.std-item:last-child{{border-right:none}}
+.stdnum{{font-family:'DM Serif Display',serif;font-size:1.5rem;color:#fff}}
+.stdinf{{display:flex;flex-direction:column}}
+.badge{{font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;display:inline-block;margin-bottom:2px}}
+.bD{{background:#fde8e8;color:#c0392b}}.bC{{background:#fef3d0;color:#b7760a}}.bT{{background:#e8f5ec;color:#2d6b3f}}
+.stdpct{{font-size:11px;color:{light2}}}
+.two-col{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
+.three-col{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}}
+.card{{background:#fff;border-radius:10px;padding:18px 20px;border:1px solid rgba(0,0,0,.06)}}
+.card-title{{font-family:'DM Serif Display',serif;font-size:.95rem;color:#0f1520;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #f0ece2}}
+table{{width:100%;border-collapse:collapse}}
+th{{text-align:left;font-size:11px;color:#8a9e8e;font-weight:500;padding:0 10px 8px;text-transform:uppercase;letter-spacing:.06em;border-bottom:2px solid #f0ece2}}
+.footer{{display:flex;justify-content:space-between;align-items:center;padding:12px 0 0;border-top:1px solid #f0ece2}}
+.fbrand{{font-family:'DM Serif Display',serif;font-size:.95rem;color:{accent}}}
+.fmeta{{font-family:'DM Mono',monospace;font-size:10px;color:#8a9e8e;text-align:right}}
+.print-btn{{display:flex;align-items:center;justify-content:center;gap:8px;background:{dark};color:#fff;border:none;border-radius:8px;padding:12px 28px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;margin:0 auto 20px;transition:opacity .2s;width:fit-content}}
+.print-btn:hover{{opacity:.85}}
+@media print{{.print-btn{{display:none!important}}body{{padding:0;background:#faf8f3!important}}.poster{{box-shadow:none!important;border-radius:0!important;padding:16px!important}}}}
+</style></head><body>
+
+<button class="print-btn" onclick="window.print()">
+  ⬇️ Descargar como PDF
+</button>
+
+<div class="poster">
+
+<header class="header">
+  <div>
+    <div class="hlabel">Análisis de Calidad — Pintura · AKT Motos</div>
+    <h1 class="htitle">{prov_title}</h1>
+    <p class="hsub">Período: {periodo_label} &nbsp;·&nbsp; {proc_lbl_e}</p>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><span class="kval">{tot_e:,.0f}</span><span class="klbl">PNC Totales</span></div>
+    <div class="kdiv"></div>
+    <div class="kpi"><span class="kval">{avg_e:,.0f}</span><span class="klbl">Prom. mensual</span></div>
+    <div class="kdiv"></div>
+    <div class="kpi"><span class="kval">{pctD_e:.0f}%</span><span class="klbl">Dev. directa</span></div>
+  </div>
+</header>
+
+<div class="std-band">
+  <span class="stdlbl">STD-001</span>
+  <div class="std-item">
+    <span class="stdnum">{df_exp[df_exp['std']=='D']['cantidad_pnc'].sum():,.0f}</span>
+    <div class="stdinf"><span class="badge bD">Devolución directa</span><span class="stdpct">{pctD_e:.0f}% del total</span></div>
+  </div>
+  <div class="std-item">
+    <span class="stdnum">{df_exp[df_exp['std']=='C']['cantidad_pnc'].sum():,.0f}</span>
+    <div class="stdinf"><span class="badge bC">Condicional</span><span class="stdpct">{pctC_e:.0f}% del total</span></div>
+  </div>
+  <div class="std-item">
+    <span class="stdnum">{df_exp[df_exp['std']=='T']['cantidad_pnc'].sum():,.0f}</span>
+    <div class="stdinf"><span class="badge bT">Tolerable</span><span class="stdpct">{pctT_e:.0f}% del total</span></div>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="card">
+    <div class="card-title">Top 5 defectos por criticidad</div>
+    <img src="data:image/png;base64,{def_img}" style="width:100%;border-radius:4px"/>
+    <table style="margin-top:10px">
+      <tr><th>Defecto</th><th>STD</th><th style="text-align:right">PNC</th><th style="text-align:right">%</th></tr>
+      {std_rows}
+    </table>
+  </div>
+  <div class="card">
+    <div class="card-title">Distribución STD-001</div>
+    <img src="data:image/png;base64,{pie_img}" style="width:100%;border-radius:4px"/>
+    <div style="margin-top:10px">
+      <div class="card-title" style="margin-top:8px">Top 5 piezas críticas</div>
+      <table>
+        <tr><th>#</th><th>Pieza</th><th style="text-align:right">PNC</th></tr>
+        {pie_rows}
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Tendencia mensual de PNC</div>
+  <img src="data:image/png;base64,{trend_img}" style="width:100%;border-radius:4px"/>
+</div>
+
+<div class="card">
+  <div class="card-title">💡 Acciones sugeridas</div>
+  {reco_html}
+</div>
+
+<footer class="footer">
+  <span class="fbrand">AKT Motos · Área de Desarrollo de Producto</span>
+  <div class="fmeta">
+    <div>Modelo de Análisis y Priorización de Defectos de Pintura</div>
+    <div>Valentina Perdomo Perdomo · Ingeniería de Diseño de Producto</div>
+  </div>
+</footer>
+</div>
+</body></html>"""
+
+        st.success(f"✅ Resumen listo para {prov_exp}")
         st.download_button(
-            "⬇️ Descargar como .txt",
-            data=resumen,
-            file_name=f"Resumen_{prov_exp}_{periodo_label.replace(' ','_')}.txt",
-            mime="text/plain",
-            use_container_width=True
+            label="⬇️ Descargar resumen (abrir en navegador → PDF)",
+            data=html_poster,
+            file_name=f"Resumen_{prov_exp}_{periodo_label.replace(' ','_')}.html",
+            mime="text/html",
+            use_container_width=True,
+            type="primary"
         )
+        st.caption("💡 Al abrir el archivo descargado, usa el botón 'Descargar como PDF' o Ctrl+P → Guardar como PDF")
+
+        # Preview
+        with st.expander("👁️ Vista previa del resumen"):
+            st.components.v1.html(html_poster, height=800, scrolling=True)
 
 # ── TAB GESTIÓN DE PERÍODOS ────────────────────────────────────
 with tab_mgmt:
