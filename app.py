@@ -263,7 +263,8 @@ def generar_reporte_html(df_scope, titulo, subtitulo, color_key="generic", extra
             lambda v:"Anómalo" if v>avg_v*1.3 else "Sobre promedio" if v>avg_v else "Normal")
         fig_trend = px.bar(mes_data, x="mes", y="cantidad_pnc", color="Estado",
             color_discrete_map={"Normal":"#52b06b","Sobre promedio":"#c9840a","Anómalo":"#c0392b"},
-            height=220, labels={"cantidad_pnc":"PNC","mes":""})
+            height=220, labels={"cantidad_pnc":"PNC","mes":""},
+            category_orders={"mes": mes_data["mes"].tolist()})
         fig_trend.update_layout(template="plotly_white", margin=dict(l=10,r=10,t=10,b=40),
             plot_bgcolor="white", paper_bgcolor="white", font=dict(color="#333"),
             showlegend=True, legend=dict(orientation="h",y=-0.3),
@@ -847,7 +848,8 @@ with tab_res:
         mt = mt.sort_values("_sort").drop(columns=["_sort"])
         fig3 = px.line(mt,x="mes",y="cantidad_pnc",color="proveedor",markers=True,
             labels={"cantidad_pnc":"PNC","mes":"Mes","proveedor":"Proveedor"},height=280,
-            color_discrete_sequence=px.colors.qualitative.Set2)
+            color_discrete_sequence=px.colors.qualitative.Set2,
+            category_orders={"mes": mt["mes"].drop_duplicates().tolist()})
         fig3.update_layout(margin=dict(l=0,r=0,t=5,b=0),
             plot_bgcolor="white",paper_bgcolor="white",xaxis=dict(tickangle=-45))
         st.plotly_chart(fig3,use_container_width=True)
@@ -926,7 +928,8 @@ with tab_prov:
         md["Estado"] = md["cantidad_pnc"].apply(lambda v:"Anómalo (+30%)" if v>avg_v*1.3 else "Sobre promedio" if v>avg_v else "Normal")
         fig3 = px.bar(md,x="mes",y="cantidad_pnc",color="Estado",
             color_discrete_map={"Normal":"#52b06b","Sobre promedio":"#c9840a","Anómalo (+30%)":"#c0392b"},
-            labels={"cantidad_pnc":"PNC","mes":""},height=260)
+            labels={"cantidad_pnc":"PNC","mes":""},height=260,
+            category_orders={"mes": md["mes"].tolist()})
         fig3.add_hline(y=avg_v,line_dash="dot",line_color="#888",annotation_text=f"Prom: {avg_v:.0f}")
         fig3.update_layout(margin=dict(l=0,r=0,t=5,b=0),plot_bgcolor="white",paper_bgcolor="white",xaxis=dict(tickangle=-45))
         st.plotly_chart(fig3,use_container_width=True)
