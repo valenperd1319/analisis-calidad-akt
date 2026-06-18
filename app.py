@@ -149,6 +149,8 @@ def init_db():
     cols_existentes = [row[1] for row in cur.fetchall()]
     if "origen" not in cols_existentes:
         cur.execute("ALTER TABLE registros ADD COLUMN origen TEXT DEFAULT '(Sin dato)'")
+    if "responsable" not in cols_existentes:
+        cur.execute("ALTER TABLE registros ADD COLUMN responsable TEXT DEFAULT '(Sin dato)'")
     if "tipo_proveedor" not in cols_existentes:
         cur.execute("ALTER TABLE registros ADD COLUMN tipo_proveedor TEXT DEFAULT '(Sin dato)'")
     con.commit(); con.close()
@@ -177,18 +179,32 @@ def save_periodo(nombre, df):
         pnc = float(r["cantidad_pnc"]) if "cantidad_pnc" in r.index and str(r["cantidad_pnc"]) not in ["","nan"] else 0.0
         modelo = safe_get(r, "Modelo", "modelo")
         origen = safe_get(r, "origen", default="(Sin dato)")
+        responsable = safe_get(r, "responsable", default="(Sin dato)")
 
         proveedor = safe_get(r,"nombre_proveedor",default="")
         if not proveedor or proveedor in ["(Sin dato)","(Sin proveedor)",""]:
             inferido = inferir_proveedor_por_modelo(modelo)
             proveedor = inferido if inferido else "(Sin proveedor)"
 
-        tipo_prov = clasificar_tipo_proveedor(proveedor)
+        # Clasificación en 3 categorías según la columna 'responsable':
+        # Proveedor Internacional / Proveedor Nacional / Producción (todo lo interno de AKT)
+        resp_upper = responsable.upper()
+        if "INTERNACIONAL" in resp_upper:
+            tipo_prov = "Proveedor Internacional"
+        elif "NACIONAL" in resp_upper:
+            tipo_prov = "Proveedor Nacional"
+        elif responsable in ["(Sin dato)",""]:
+            # Sin dato de responsable: usar el proveedor para decidir si es externo
+            inferido_tipo = clasificar_tipo_proveedor(proveedor)
+            tipo_prov = "Proveedor Internacional" if inferido_tipo=="Internacional" else "Proveedor Nacional" if inferido_tipo=="Nacional" else "(Sin dato)"
+        else:
+            # Cualquier otro valor (líneas, desempaque, bodega, testeo, despachos, etc.) = Producción interna
+            tipo_prov = "Producción"
 
         rows.append((pid, safe_get(r,"mes",default="(Sin mes)"), proveedor,
             dmg, safe_get(r,"tipo_averia",default="(Sin tipo)"), safe_get(r,"articulo",default="(Sin pieza)"),
-            modelo, pnc, pnc*WEIGHTS.get(dmg,2), STD.get(dmg,"C"), origen, tipo_prov))
-    cur.executemany("INSERT INTO registros (periodo_id,mes,proveedor,damage,tipo_averia,articulo,modelo,cantidad_pnc,criticidad,std,origen,tipo_proveedor) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+            modelo, pnc, pnc*WEIGHTS.get(dmg,2), STD.get(dmg,"C"), origen, responsable, tipo_prov))
+    cur.executemany("INSERT INTO registros (periodo_id,mes,proveedor,damage,tipo_averia,articulo,modelo,cantidad_pnc,criticidad,std,origen,responsable,tipo_proveedor) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     con.commit(); con.close()
     return pid
 
@@ -787,14 +803,14 @@ with tab_res:
         with ti1:
             fig_tipo = px.pie(tipo_g, values="cantidad_pnc", names="tipo_proveedor", height=260,
                 color="tipo_proveedor",
-                color_discrete_map={"Nacional":"#3a8a51","Internacional":"#2d65aa","(Sin dato)":"#bbb"})
+                color_discrete_map={"Proveedor Nacional":"#3a8a51","Proveedor Internacional":"#2d65aa","Producción":"#c9840a","(Sin dato)":"#bbb"})
             fig_tipo.update_layout(margin=dict(l=0,r=0,t=5,b=0), paper_bgcolor="white")
             st.plotly_chart(fig_tipo, use_container_width=True)
         with ti2:
             for _, r in tipo_g.sort_values("cantidad_pnc", ascending=False).iterrows():
                 st.metric(r["tipo_proveedor"], f"{r['cantidad_pnc']:,.0f} PNC", f"{r['pct']}% del total")
 
-        with st.expander("🔎 Ver detalle por origen específico (línea, proveedor, etc.)"):
+        with st.expander("🔎 Ver detalle por línea/área específica de origen"):
             origenes_disp = sorted(df["origen"].dropna().unique().tolist())
             origen_sel = st.multiselect("Filtrar por origen", origenes_disp, default=[], key="origen_resumen_filter")
             df_origen = df[df["origen"].isin(origen_sel)] if origen_sel else df
