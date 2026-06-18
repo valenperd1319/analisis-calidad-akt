@@ -63,6 +63,58 @@ STD = {
 }
 
 PROV_PROCESS = {"SERVIPINTARTE":"batch","INTERAUTOS":"continuo"}
+
+# ============================================================
+# MAPEO MODELO → PROVEEDOR (para inferir cuando viene vacío)
+# ============================================================
+MODELO_PROVEEDOR_MAP = {
+    # Royal Enfield
+    "CLASSIC 350":"Royal Enfield","CLASSIC 350 GR":"Royal Enfield","GRR 450":"Royal Enfield",
+    "HIMALAYAN 452":"Royal Enfield","HNTR 350":"Royal Enfield","INT BEAR 650":"Royal Enfield",
+    "METEOR 350":"Royal Enfield","METEOR 350 RE":"Royal Enfield","METEOR 350 STE":"Royal Enfield",
+    "METEOR 350 STELLAR":"Royal Enfield","SCRAM 411":"Royal Enfield","SCRAM 411 SPIR":"Royal Enfield",
+    "SCRAM 411 SPIRIT":"Royal Enfield",
+    # Zonsen
+    "AK200ZW":"Zonsen","AK200ZWC":"Zonsen","AK125FLEX EIII":"Zonsen",
+    # SYM
+    "DYNAMIC RX":"SYM","XC15WX":"SYM","AK125DYN PRO+":"SYM","AK125DYN R+":"SYM","JET EVO":"SYM",
+    # Atul
+    "ATUL RIK":"Atul",
+    # Loncin (todo lo demás con prefijo AK o modelos numéricos típicos)
+    "300 RALLY":"Loncin","300AC":"Loncin","300DS":"Loncin","300RALLY":"Loncin","500DSX":"Loncin",
+    "AK110NV EIII":"Loncin","AK125CH EIII":"Loncin","AK125CR4 EIII":"Loncin","AK150CR4":"Loncin",
+    "AK250CR4 EFI":"Loncin","AK125TTR EIII":"Loncin","AK200TTR EIII":"Loncin","AK125T-4":"Loncin",
+    "AK180SR1-ADV":"Loncin","AK200CR3 EIII":"Loncin","AK200CR3 EIII ABS":"Loncin",
+    "AK200DS EIII":"Loncin","AK200DS+":"Loncin","AK200DS+ ABS":"Loncin",
+    "AK125NKD EIII":"Loncin","DS900X":"Loncin","DS900XÂ ":"Loncin","AK200TT":"Loncin",
+    "AK200DS":"Loncin",
+}
+
+PROVEEDORES_INTERNACIONALES = {"Royal Enfield","Zonsen","SYM","Atul","Loncin"}
+
+def inferir_proveedor_por_modelo(modelo):
+    """Busca coincidencia exacta o parcial del modelo en el mapeo."""
+    if not modelo or modelo == "(Sin dato)":
+        return None
+    modelo_norm = str(modelo).strip()
+    if modelo_norm in MODELO_PROVEEDOR_MAP:
+        return MODELO_PROVEEDOR_MAP[modelo_norm]
+    # Coincidencia parcial (por si vienen con sufijos distintos como EIII, ABS, etc.)
+    for key, prov in MODELO_PROVEEDOR_MAP.items():
+        key_base = key.split(" EIII")[0].split(" ABS")[0].split(" EFI")[0].strip()
+        if modelo_norm.startswith(key_base) and len(key_base) > 2:
+            return prov
+    return None
+
+def clasificar_tipo_proveedor(proveedor):
+    if proveedor in PROVEEDORES_INTERNACIONALES:
+        return "Internacional"
+    elif proveedor in ["(Sin proveedor)","(Sin dato)"]:
+        return "(Sin dato)"
+    else:
+        return "Nacional"
+
+
 STD_COLORS = {"D":"#c0392b","C":"#c9840a","T":"#2d6b3f"}
 
 MES_ORDER = ["enero","febrero","marzo","abril","mayo","junio",
@@ -92,6 +144,13 @@ def init_db():
         periodo_id INTEGER, proveedor TEXT, defecto TEXT,
         accion TEXT, responsable TEXT, fecha_compromiso TEXT,
         estado TEXT, fecha_creacion TEXT, notas TEXT)""")
+    # Migración: agregar columnas nuevas si la tabla ya existía sin ellas
+    cur.execute("PRAGMA table_info(registros)")
+    cols_existentes = [row[1] for row in cur.fetchall()]
+    if "origen" not in cols_existentes:
+        cur.execute("ALTER TABLE registros ADD COLUMN origen TEXT DEFAULT '(Sin dato)'")
+    if "tipo_proveedor" not in cols_existentes:
+        cur.execute("ALTER TABLE registros ADD COLUMN tipo_proveedor TEXT DEFAULT '(Sin dato)'")
     con.commit(); con.close()
 
 def safe_get(r, *keys, default="(Sin dato)"):
@@ -117,10 +176,19 @@ def save_periodo(nombre, df):
         dmg = safe_get(r, "damage")
         pnc = float(r["cantidad_pnc"]) if "cantidad_pnc" in r.index and str(r["cantidad_pnc"]) not in ["","nan"] else 0.0
         modelo = safe_get(r, "Modelo", "modelo")
-        rows.append((pid, safe_get(r,"mes",default="(Sin mes)"), safe_get(r,"nombre_proveedor",default="(Sin proveedor)"),
+        origen = safe_get(r, "origen", default="(Sin dato)")
+
+        proveedor = safe_get(r,"nombre_proveedor",default="")
+        if not proveedor or proveedor in ["(Sin dato)","(Sin proveedor)",""]:
+            inferido = inferir_proveedor_por_modelo(modelo)
+            proveedor = inferido if inferido else "(Sin proveedor)"
+
+        tipo_prov = clasificar_tipo_proveedor(proveedor)
+
+        rows.append((pid, safe_get(r,"mes",default="(Sin mes)"), proveedor,
             dmg, safe_get(r,"tipo_averia",default="(Sin tipo)"), safe_get(r,"articulo",default="(Sin pieza)"),
-            modelo, pnc, pnc*WEIGHTS.get(dmg,2), STD.get(dmg,"C")))
-    cur.executemany("INSERT INTO registros (periodo_id,mes,proveedor,damage,tipo_averia,articulo,modelo,cantidad_pnc,criticidad,std) VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+            modelo, pnc, pnc*WEIGHTS.get(dmg,2), STD.get(dmg,"C"), origen, tipo_prov))
+    cur.executemany("INSERT INTO registros (periodo_id,mes,proveedor,damage,tipo_averia,articulo,modelo,cantidad_pnc,criticidad,std,origen,tipo_proveedor) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     con.commit(); con.close()
     return pid
 
@@ -708,6 +776,34 @@ with tab_res:
         (c4,str(df["proveedor"].nunique()),"Proveedores")
     ]:
         col.markdown(f'<div class="kpi-card"><div class="kpi-val">{val}</div><div class="kpi-lbl">{lbl}</div></div>', unsafe_allow_html=True)
+
+    # Desglose Nacional vs Internacional + filtro por origen
+    if "tipo_proveedor" in df.columns:
+        st.markdown('<div class="sec-title">Origen del PNC — Nacional vs Internacional</div>', unsafe_allow_html=True)
+        tipo_g = df.groupby("tipo_proveedor")["cantidad_pnc"].sum().reset_index()
+        tipo_g["pct"] = (tipo_g["cantidad_pnc"]/total*100).round(1) if total else 0
+
+        ti1, ti2 = st.columns(2)
+        with ti1:
+            fig_tipo = px.pie(tipo_g, values="cantidad_pnc", names="tipo_proveedor", height=260,
+                color="tipo_proveedor",
+                color_discrete_map={"Nacional":"#3a8a51","Internacional":"#2d65aa","(Sin dato)":"#bbb"})
+            fig_tipo.update_layout(margin=dict(l=0,r=0,t=5,b=0), paper_bgcolor="white")
+            st.plotly_chart(fig_tipo, use_container_width=True)
+        with ti2:
+            for _, r in tipo_g.sort_values("cantidad_pnc", ascending=False).iterrows():
+                st.metric(r["tipo_proveedor"], f"{r['cantidad_pnc']:,.0f} PNC", f"{r['pct']}% del total")
+
+        with st.expander("🔎 Ver detalle por origen específico (línea, proveedor, etc.)"):
+            origenes_disp = sorted(df["origen"].dropna().unique().tolist())
+            origen_sel = st.multiselect("Filtrar por origen", origenes_disp, default=[], key="origen_resumen_filter")
+            df_origen = df[df["origen"].isin(origen_sel)] if origen_sel else df
+            origen_tbl = df_origen.groupby("origen")["cantidad_pnc"].sum().sort_values(ascending=False).reset_index()
+            origen_tbl["% del total"] = (origen_tbl["cantidad_pnc"]/total*100).round(1) if total else 0
+            origen_tbl.columns = ["Origen","PNC","% del total"]
+            origen_tbl["PNC"] = origen_tbl["PNC"].apply(lambda x: f"{x:,.0f}")
+            origen_tbl["% del total"] = origen_tbl["% del total"].apply(lambda x: f"{x}%")
+            st.dataframe(origen_tbl, use_container_width=True, hide_index=True)
 
     st.markdown("")
     l, r = st.columns(2)
